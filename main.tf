@@ -29,11 +29,11 @@ resource "aws_ecs_task_definition" "tera_task_definition" {
   [
     {
       "name": "tera-container",
-      "image": "tomcat:9.0.54-jdk8-openjdk",
+      "image": "nginx:latest",
       "portMappings": [
         {
-          "containerPort": 8080,
-          "hostPort": 8080
+          "containerPort": 80,
+          "hostPort": 80
         }
       ]
     }
@@ -47,18 +47,27 @@ resource "aws_ecs_service" "tera_service" {
   cluster         = aws_ecs_cluster.tera_cluster.id
   task_definition = aws_ecs_task_definition.tera_task_definition.arn
   desired_count   = 1
+  launch_type     = "FARGATE"
 
   deployment_controller {
     type = "ECS"
   }
 
   network_configuration {
-      security_groups  = ["sg-02ade7c0470676428"] # Change to your own security group IDs
+      security_groups  = ["sg-0f119123eae8fe6c9"] # Change to your own security group IDs
       subnets          = ["subnet-075657eeaf652bc83", "subnet-0309d9064f5ce66f9"] # Change to your own subnet IDs
+       assign_public_ip = true
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.tera_target_group.arn
+    container_name   = "tera-container"
+    container_port   = 80
   }
 
   depends_on = [
     aws_ecs_task_definition.tera_task_definition,
+    aws_lb_target_group.tera_target_group, # This dependency causes the cycle
   ]
 
   lifecycle {
@@ -73,7 +82,7 @@ resource "aws_lb" "tera_alb" {
   internal           = false
   load_balancer_type = "application"
   subnets            = ["subnet-075657eeaf652bc83", "subnet-0309d9064f5ce66f9"] # Change to your own subnet IDs
-  security_groups    = ["sg-02ade7c0470676428"] # Change to your own security group IDs
+  security_groups    = ["sg-0f119123eae8fe6c9"] # Change to your own security group IDs
 
   tags = {
     Name = "tera-alb"
@@ -83,7 +92,7 @@ resource "aws_lb" "tera_alb" {
 # Create a listener for the ALB to forward traffic to the ECS service
 resource "aws_lb_listener" "tera_listener" {
   load_balancer_arn = aws_lb.tera_alb.arn
-  port              = "8080"
+  port              = "80"
   protocol          = "HTTP"
 
   default_action {
@@ -95,7 +104,7 @@ resource "aws_lb_listener" "tera_listener" {
 # Create a target group for the ECS service
 resource "aws_lb_target_group" "tera_target_group" {
   name_prefix       = "tera"
-  port              = 8080
+  port              = 80
   protocol          = "HTTP"
   vpc_id            = "vpc-0143dac887e83b3c6" # Change to your own VPC ID
   target_type       = "ip"
@@ -110,8 +119,7 @@ resource "aws_lb_target_group" "tera_target_group" {
   }
 
   depends_on = [
-    aws_lb.tera_alb,
-    aws_ecs_service.tera_service,
+    aws_lb.tera_alb
   ]
 }
 
